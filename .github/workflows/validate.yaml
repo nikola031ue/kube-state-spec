@@ -1,0 +1,136 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  layout:
+    name: layout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - name: Check Requirement 5.3 layout
+        run: bash .github/scripts/check-layout.sh
+      - name: Test layout checker
+        run: bats .github/tests/check-layout.bats
+
+  schema:
+    name: schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - name: Validate cluster.yaml / helm.yaml / values.yaml
+        run: bash .github/scripts/check-schema.sh
+      - name: Test schema checker
+        run: bats .github/tests/check-schema.bats
+
+  secrets-scan:
+    name: secrets-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - name: No literal secrets in values.yaml (FR-013)
+        run: bash .github/scripts/scan-secrets.sh clusters/*/*/values.yaml
+      - name: Test secrets scanner
+        run: bats .github/tests/scan-secrets.bats
+
+  charts-exist:
+    name: charts-exist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - name: Every pinned chart version is pullable anonymously (SC-005)
+        run: |
+          set -euo pipefail
+          source .github/scripts/lib.sh
+          failed=0
+          for h in clusters/*/*/helm.yaml; do
+            url="$(yq_doc "$h" OCIRepository .spec.url)"
+            tag="$(yq_doc "$h" OCIRepository .spec.ref.tag)"
+            if helm show chart "$url" --version "$tag" >/dev/null 2>&1; then
+              echo "ok: $url:$tag"
+            else
+              echo "::error file=$h::$url:$tag is not anonymously pullable (unpublished or private)"
+              failed=1
+            fi
+          done
+          exit $failed
+
+  render:
+    name: render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - name: Render every release with its values.yaml
+        run: |
+          set -euo pipefail
+          source .github/scripts/lib.sh
+          for h in clusters/*/*/helm.yaml; do
+            dir="$(dirname "$h")"
+            url="$(yq_doc "$h" OCIRepository .spec.url)"
+            tag="$(yq_doc "$h" OCIRepository .spec.ref.tag)"
+            rel="$(yq_doc "$h" HelmRelease .spec.releaseName)"
+            ns="$(yq_doc "$h" HelmRelease .spec.targetNamespace)"
+            echo "::group::$dir"
+            helm template "$rel" "$url" --version "$tag" -n "$ns" -f "$dir/values.yaml" > /tmp/out.yaml
+            kubeconform -strict -ignore-missing-schemas -summary < /tmp/out.yaml
+            bash .github/scripts/check-images.sh < /tmp/out.yaml
+            echo "::endgroup::"
+          done
+      - name: Test image checker
+        run: bats .github/tests/check-images.bats
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - name: bring-up.sh unit tests (stubbed helm/kubectl)
+        run: |
+          chmod +x .github/tests/stubs/* bring-up.sh
+          bats .github/tests/bring-up.bats
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - uses: helm/kind-action@v1.12.0
+        with:
+          version: v0.27.0
+          cluster_name: ci
+      - name: Make the kind context look like the local cluster (exercises the FR-021 guard)
+        run: |
+          kubectl config rename-context kind-ci docker-desktop
+          kubectl config use-context docker-desktop
+      - name: First bring-up installs every release
+        run: |
+          set -euo pipefail
+          chmod +x bring-up.sh
+          ./bring-up.sh | tee /tmp/run1.txt
+          grep -q "done: 3 installed, 0 upgraded, 0 unchanged" /tmp/run1.txt
+      - name: Second bring-up changes nothing (SC-003)
+        run: |
+          set -euo pipefail
+          ./bring-up.sh | tee /tmp/run2.txt
+          grep -q "done: 0 installed, 0 upgraded, 3 unchanged" /tmp/run2.txt
+          revs="$(helm history shophub -n shophub -o json | jq length)"
+          [ "$revs" -eq 1 ] || { echo "shophub has $revs revisions, expected 1"; exit 1; }
+      - name: Wrong context is refused (FR-021)
+        run: |
+          kubectl config rename-context docker-desktop other
+          kubectl config use-context other
+          set +e; ./bring-up.sh; rc=$?; set -e
+          [ "$rc" -eq 4 ] || { echo "expected exit 4, got $rc"; exit 1; }

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Test stub for kubectl used by bring-up.bats. Logs every call to $STUB_LOG.
+#   KUBE_CONTEXT          output of `kubectl config current-context` (default docker-desktop)
+#   KUBECTL_WAIT_FAIL     CRD name whose `kubectl wait` times out
+echo "kubectl $*" >> "${STUB_LOG:-/dev/null}"
+case "$*" in
+  *"config current-context"*) echo "${KUBE_CONTEXT:-docker-desktop}" ;;
+  *wait*)
+    for a in "$@"; do
+      if [[ "$a" == crd/* && "${a#crd/}" == "${KUBECTL_WAIT_FAIL-}" ]]; then
+        echo "error: timed out waiting for the condition on customresourcedefinitions/${a#crd/}" >&2
+        exit 1
+      fi
+    done
+    echo "condition met" ;;
+esac
+exit 0

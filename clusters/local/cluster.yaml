@@ -1,0 +1,10 @@
+# Metadata of the local cluster. Deliberately NOT a Kubernetes object (no apiVersion/kind),
+# so no tool ever tries to apply it. Read by bring-up.sh and validated in CI.
+name: local                      # must equal the folder name
+context: docker-desktop          # bring-up.sh refuses any other current kube context
+distribution: docker-desktop     # Docker Desktop Kubernetes
+kubernetesVersion: "1.31"        # informational
+releaseOrder:                    # every release folder exactly once, dependencies first
+  - shop-operator
+  - shophub
+  - shophub-discord

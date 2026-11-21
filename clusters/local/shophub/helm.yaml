@@ -1,0 +1,34 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: shophub
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: oci://ghcr.io/nikola031ue/charts/shophub
+  ref:
+    tag: "0.1.0"
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: shophub
+  namespace: flux-system
+spec:
+  interval: 10m
+  releaseName: shophub
+  targetNamespace: shophub
+  install:
+    createNamespace: true
+  chartRef:
+    kind: OCIRepository
+    name: shophub
+  dependsOn:
+    - name: shop-operator
+  valuesFrom:
+    - kind: ConfigMap
+      name: shophub-values
+      valuesKey: values.yaml
