@@ -90,7 +90,7 @@ kubectl config use-context docker-desktop
 
 For each release in `releaseOrder` the script:
 
-1. installs or upgrades it with `helm upgrade --install --wait` from the pinned OCI chart and
+1. installs or upgrades it with `helm upgrade --install --reset-values --wait` from the pinned OCI chart and
    its `values.yaml` — or prints `unchanged` and skips it if the deployed chart version, values
    and status already match;
 2. waits for every CRD the release provides to be `Established` before the next release.
@@ -125,7 +125,7 @@ changing a tag or a value, only the affected release is upgraded.
 | 0 | all releases installed / upgraded / unchanged |
 | 1 | a release failed (later releases not attempted) |
 | 2 | required tool missing or too old |
-| 3 | `cluster.yaml` / `helm.yaml` missing or invalid |
+| 3 | `cluster.yaml` / `helm.yaml` / `values.yaml` missing or invalid (all release folders are validated before any install) |
 | 4 | current kube context does not match `cluster.yaml` |
 | 5 | a CRD did not become `Established` in time |
 | 6 | chart version not found or registry unreachable |

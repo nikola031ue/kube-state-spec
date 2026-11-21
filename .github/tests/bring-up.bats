@@ -73,6 +73,29 @@ crd() { # crd NAME -> CRD manifest
   [[ "$output" == *"shophub"* ]]
 }
 
+@test "invalid values.yaml in a later release -> exit 3 before any release is installed" {
+  printf '{}\nreplicaCount: 2\n' > clusters/local/shophub-discord/values.yaml
+  run ./bring-up.sh
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"shophub-discord"*"values.yaml"*"not valid YAML"* ]]
+  [ -z "$(grep '^helm upgrade' "$STUB_LOG")" ]
+}
+
+@test "values.yaml that is not a mapping -> exit 3" {
+  printf -- '- a\n- b\n' > clusters/local/shophub/values.yaml
+  run ./bring-up.sh
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"must be a YAML mapping"* ]]
+}
+
+@test "invalid helm.yaml in a later release -> exit 3 before any release is installed" {
+  printf 'kind: [broken\n' > clusters/local/shophub-discord/helm.yaml
+  run ./bring-up.sh
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"shophub-discord"* ]]
+  [ -z "$(grep '^helm upgrade' "$STUB_LOG")" ]
+}
+
 # ---- context guard (FR-021) ----
 
 @test "context mismatch -> exit 4 and no helm call besides version" {
@@ -100,10 +123,19 @@ crd() { # crd NAME -> CRD manifest
   [[ "$output" == *"done: 3 installed, 0 upgraded, 0 unchanged"* ]]
 }
 
-@test "upgrade uses OCI url, exact version, namespace, values file and --wait" {
+@test "upgrade uses OCI url, exact version, namespace, values file, --reset-values and --wait" {
   run ./bring-up.sh
   [ "$status" -eq 0 ]
-  grep -q -- "upgrade --install shophub oci://ghcr.io/nikola031ue/charts/shophub --version 0.1.0 -n shophub --create-namespace -f clusters/local/shophub/values.yaml --wait --timeout 5m" "$STUB_LOG"
+  grep -q -- "upgrade --install shophub oci://ghcr.io/nikola031ue/charts/shophub --version 0.1.0 -n shophub --create-namespace -f clusters/local/shophub/values.yaml --reset-values --wait --timeout 5m" "$STUB_LOG"
+}
+
+@test "override removed from values.yaml -> upgraded with --reset-values (no stale values)" {
+  all_deployed
+  export HELM_VALUES_SHOPHUB='{"replicaCount":2}'
+  run ./bring-up.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"shophub "*"upgraded"* ]]
+  grep '^helm upgrade --install shophub ' "$STUB_LOG" | grep -q -- '--reset-values'
 }
 
 @test "HELM_TIMEOUT is passed to helm" {

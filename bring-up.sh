@@ -16,7 +16,7 @@ Environment:
   HELM_TIMEOUT       timeout per release for helm --wait          (default 5m)
   CRD_WAIT_TIMEOUT   timeout per CRD for condition=Established    (default 120s)
 
-Exit codes: 0 ok | 1 release failed | 2 missing tool | 3 invalid cluster.yaml/helm.yaml
+Exit codes: 0 ok | 1 release failed | 2 missing tool | 3 invalid cluster.yaml/helm.yaml/values.yaml
             4 wrong kube context | 5 CRD not Established | 6 chart/registry not reachable
 EOF
 }
@@ -75,16 +75,17 @@ crd_names() { # stdin: manifests -> CRD names
 }
 
 n=${#RELEASES[@]}
-installed=0 upgraded=0 unchanged=0
-summary=()
 
-for i in "${!RELEASES[@]}"; do
-  rel_dir="${RELEASES[i]}"
-  step="[$((i + 1))/$n]"
+# ---- 3.1 validate every release folder before touching the cluster (exit 3) ----
+URLS=() VERSIONS=() NAMES=() NSS=()
+for rel_dir in "${RELEASES[@]}"; do
   H="$CDIR/$rel_dir/helm.yaml"
   V="$CDIR/$rel_dir/values.yaml"
   [[ -f "$H" ]] || fail 3 "$rel_dir: $H not found"
   [[ -f "$V" ]] || fail 3 "$rel_dir: $V not found"
+  yq eval-all '.' "$H" >/dev/null 2>&1 || fail 3 "$rel_dir: $H is not valid YAML"
+  yq eval -o json '.' "$V" >/dev/null 2>&1 || fail 3 "$rel_dir: $V is not valid YAML"
+  [[ "$(yq eval '. | type' "$V")" =~ ^!!(map|null)$ ]] || fail 3 "$rel_dir: $V must be a YAML mapping"
 
   url="$(field "$H" OCIRepository .spec.url)"
   version="$(field "$H" OCIRepository .spec.ref.tag)"
@@ -92,6 +93,17 @@ for i in "${!RELEASES[@]}"; do
   ns="$(field "$H" HelmRelease .spec.targetNamespace)"
   [[ -n "$url" && -n "$version" && -n "$release" && -n "$ns" ]] \
     || fail 3 "$rel_dir: $H must define OCIRepository spec.url/spec.ref.tag and HelmRelease spec.releaseName/spec.targetNamespace"
+  URLS+=("$url") VERSIONS+=("$version") NAMES+=("$release") NSS+=("$ns")
+done
+
+installed=0 upgraded=0 unchanged=0
+summary=()
+
+for i in "${!RELEASES[@]}"; do
+  rel_dir="${RELEASES[i]}"
+  step="[$((i + 1))/$n]"
+  V="$CDIR/$rel_dir/values.yaml"
+  url="${URLS[i]}" version="${VERSIONS[i]}" release="${NAMES[i]}" ns="${NSS[i]}"
   chart="${url##*/}"
 
   # ---- 3.2 desired vs deployed ----
@@ -108,10 +120,12 @@ for i in "${!RELEASES[@]}"; do
   fi
 
   # ---- 3.3 install / upgrade ----
+  # --reset-values: values.yaml is the only source. Without it Helm 3 copies the previous
+  # release's values when values.yaml is empty, so removing an override never takes effect.
   if [[ -z "$result" ]]; then
     if [[ -z "$dep_status" ]]; then result=installed; else result=upgraded; fi
     if ! out="$(helm upgrade --install "$release" "$url" --version "$version" -n "$ns" --create-namespace \
-                  -f "$V" --wait --timeout "$HELM_TIMEOUT" "${KC[@]}" 2>&1)"; then
+                  -f "$V" --reset-values --wait --timeout "$HELM_TIMEOUT" "${KC[@]}" 2>&1)"; then
       printf '%s\n' "$out" >&2
       if is_registry_error "$out"; then
         fail 6 "$release: chart $url version $version could not be pulled (missing version or registry unreachable)"
