@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Test stub for helm used by bring-up.bats. Logs every call to $STUB_LOG.
+# Behaviour is selected by env vars; <REL>/<CHART> = name upper-cased, '-'/'.' -> '_':
+#   HELM_VERSION              output of `helm version --short` (default v3.17.3)
+#   HELM_LIST_<REL>           JSON for `helm list -o json --filter ^rel$` (default [])
+#   HELM_VALUES_<REL>         JSON for `helm get values -o json` (default null)
+#   HELM_MANIFEST_<REL>       YAML for `helm get manifest` (default empty)
+#   HELM_CRDS_<CHART>         YAML for `helm show crds` (default empty)
+#   HELM_UPGRADE_FAIL_<REL>   notfound | error   (make `helm upgrade --install` fail)
+echo "helm $*" >> "${STUB_LOG:-/dev/null}"
+key() { echo "$1" | tr 'a-z.-' 'A-Z__'; }
+get() { local v="$1"; printf '%s' "${!v-}"; }
+
+args=("$@")
+# Drop global flags so the subcommand is first.
+cmd=()
+i=0
+while (( i < ${#args[@]} )); do
+  case "${args[i]}" in
+    --kube-context) i=$((i + 2)) ;;
+    *) cmd+=("${args[i]}"); i=$((i + 1)) ;;
+  esac
+done
+
+flag() { # flag NAME -> value following NAME in cmd
+  local j
+  for (( j = 0; j < ${#cmd[@]}; j++ )); do
+    [[ "${cmd[j]}" == "$1" ]] && { echo "${cmd[j+1]-}"; return; }
+  done
+}
+
+case "${cmd[0]} ${cmd[1]-}" in
+  "version "*)
+    echo "${HELM_VERSION:-v3.17.3}+g0000000" ;;
+  "list "*)
+    f="$(flag --filter)"; rel="${f#^}"; rel="${rel%\$}"
+    out="$(get "HELM_LIST_$(key "$rel")")"; echo "${out:-[]}" ;;
+  "get values")
+    out="$(get "HELM_VALUES_$(key "${cmd[2]}")")"; echo "${out:-null}" ;;
+  "get manifest")
+    get "HELM_MANIFEST_$(key "${cmd[2]}")"; echo ;;
+  "show crds")
+    ref="${cmd[2]}"; get "HELM_CRDS_$(key "${ref##*/}")"; echo ;;
+  "upgrade --install")
+    rel="${cmd[2]}"
+    case "$(get "HELM_UPGRADE_FAIL_$(key "$rel")")" in
+      notfound) echo "Error: ${cmd[3]}:$(flag --version): not found" >&2; exit 1 ;;
+      error)    echo "Error: UPGRADE FAILED: context deadline exceeded" >&2; exit 1 ;;
+    esac
+    echo "Release \"$rel\" has been upgraded. Happy Helming!" ;;
+esac
+exit 0

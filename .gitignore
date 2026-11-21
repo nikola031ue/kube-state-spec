@@ -1,0 +1,12 @@
+.idea/
+.vscode/
+*.local.yaml
+.env*
+*.secret.yaml
+kubeconfig*
+*.key
+*.crt
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
