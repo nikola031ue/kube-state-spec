@@ -56,7 +56,9 @@ mapfile -t RELEASES < <(yq eval '.releaseOrder[]' "$CFILE" 2>/dev/null)
 current="$(kubectl config current-context 2>/dev/null || true)"
 [[ "$current" == "$CONTEXT" ]] \
   || fail 4 "current kube context is '${current:-<none>}', expected '$CONTEXT' (from $CFILE). Run: kubectl config use-context $CONTEXT"
-KC=(--kube-context "$CONTEXT")
+# helm and kubectl spell the context flag differently.
+KC=(--kube-context "$CONTEXT")   # helm
+KCTL=(--context "$CONTEXT")      # kubectl
 
 echo "[cluster] $CLUSTER (context $CONTEXT)"
 
@@ -152,8 +154,10 @@ for i in "${!RELEASES[@]}"; do
     printf '%s %-16s crds: none\n' "$step" "$release"
   else
     for c in "${crds[@]}"; do
-      kubectl wait --for=condition=Established "crd/$c" --timeout="$CRD_WAIT_TIMEOUT" "${KC[@]}" >/dev/null 2>&1 \
-        || fail 5 "$release: CRD '$c' not Established within $CRD_WAIT_TIMEOUT; later releases were not attempted"
+      if ! out="$(kubectl wait --for=condition=Established "crd/$c" --timeout="$CRD_WAIT_TIMEOUT" "${KCTL[@]}" 2>&1)"; then
+        printf '%s\n' "$out" >&2
+        fail 5 "$release: CRD '$c' not Established within $CRD_WAIT_TIMEOUT; later releases were not attempted"
+      fi
     done
     printf '%s %-16s crds: %s Established\n' "$step" "$release" "$(IFS=,; echo "${crds[*]}")"
   fi

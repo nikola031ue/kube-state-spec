@@ -105,11 +105,31 @@ crd() { # crd NAME -> CRD manifest
   [ -z "$(grep '^helm' "$STUB_LOG" | grep -v '^helm version')" ]
 }
 
-@test "every cluster-touching call carries --kube-context docker-desktop" {
+@test "every cluster-touching call carries the context (helm --kube-context, kubectl --context)" {
+  export HELM_CRDS_SHOP_OPERATOR="$(crd shops.shophub.io)"   # exercise kubectl wait too
   run ./bring-up.sh
   [ "$status" -eq 0 ]
-  missing="$(grep -E '^(helm|kubectl)' "$STUB_LOG" | grep -v -e '^helm version' -e 'config current-context' | grep -v -- '--kube-context docker-desktop' || true)"
+  missing="$(grep -E '^helm' "$STUB_LOG" | grep -v '^helm version' | grep -v -- '--kube-context docker-desktop' || true)"
   [ -z "$missing" ]
+  grep -q '^kubectl wait' "$STUB_LOG"
+  missing="$(grep -E '^kubectl' "$STUB_LOG" | grep -v 'config current-context' | grep -v -- '--context docker-desktop' || true)"
+  [ -z "$missing" ]
+}
+
+@test "regression: kubectl never gets helm's --kube-context flag (CRD wait failed on real CRDs)" {
+  export HELM_CRDS_SHOP_OPERATOR="$(crd shops.shophub.io)"
+  run ./bring-up.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"crds: shops.shophub.io Established"* ]]
+  ! grep -E '^kubectl .*--kube-context' "$STUB_LOG"
+}
+
+@test "a failing CRD wait shows kubectl's own error" {
+  export HELM_CRDS_SHOP_OPERATOR="$(crd shops.shophub.io)"
+  export KUBECTL_WAIT_FAIL=shops.shophub.io
+  run ./bring-up.sh
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"timed out waiting for the condition"* ]]
 }
 
 # ---- install order and results (FR-020) ----
