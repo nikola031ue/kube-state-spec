@@ -120,12 +120,12 @@ jobs:
           set -euo pipefail
           chmod +x bring-up.sh
           ./bring-up.sh | tee /tmp/run1.txt
-          grep -q "done: 3 installed, 0 upgraded, 0 unchanged" /tmp/run1.txt
+          grep -q "done: 5 installed, 0 upgraded, 0 unchanged" /tmp/run1.txt
       - name: Second bring-up changes nothing (SC-003)
         run: |
           set -euo pipefail
           ./bring-up.sh | tee /tmp/run2.txt
-          grep -q "done: 0 installed, 0 upgraded, 3 unchanged" /tmp/run2.txt
+          grep -q "done: 0 installed, 0 upgraded, 5 unchanged" /tmp/run2.txt
           revs="$(helm history shophub -n shophub -o json | jq length)"
           [ "$revs" -eq 1 ] || { echo "shophub has $revs revisions, expected 1"; exit 1; }
       - name: Wrong context is refused (FR-021)

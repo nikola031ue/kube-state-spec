@@ -1,0 +1,9 @@
+# Upstream Helm charts that kube-state releases may use (spec 002, research R7).
+# Only exact url + version pairs: bumping an upstream chart means editing the release's
+# helm.yaml AND this file in the same, reviewed PR. Charts we write live in helm-charts and
+# need no entry here.
+charts:
+  - url: oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
+    version: 0.29.2
+  - url: oci://ghcr.io/ot-container-kit/charts/redis-operator
+    version: 0.27.0

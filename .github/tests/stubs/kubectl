@@ -3,6 +3,13 @@
 #   KUBE_CONTEXT          output of `kubectl config current-context` (default docker-desktop)
 #   KUBECTL_WAIT_FAIL     CRD name whose `kubectl wait` times out
 echo "kubectl $*" >> "${STUB_LOG:-/dev/null}"
+# Like the real kubectl: the context flag is --context; helm's --kube-context is an unknown flag.
+for a in "$@"; do
+  if [[ "$a" == --kube-context* ]]; then
+    echo "Error: unknown flag: --kube-context" >&2
+    exit 1
+  fi
+done
 case "$*" in
   *"config current-context"*) echo "${KUBE_CONTEXT:-docker-desktop}" ;;
   *wait*)

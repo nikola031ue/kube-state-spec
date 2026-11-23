@@ -5,6 +5,12 @@ make_fixture() {
   local root="$1" c="$1/clusters/local"
   mkdir -p "$c"
   touch "$root/README.md" "$root/bring-up.sh"
+  mkdir -p "$root/.github"
+  cat > "$root/.github/upstream-charts.yaml" <<'EOF'
+charts:
+  - url: oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
+    version: 0.29.2
+EOF
   cat > "$c/cluster.yaml" <<'EOF'
 name: local
 context: docker-desktop
