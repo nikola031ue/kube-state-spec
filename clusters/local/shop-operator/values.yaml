@@ -2,6 +2,5 @@
 # The Discord bot token lives in Secret shop-operator-discord (key "token") in
 # shop-operator-system, created once by hand — see kube-state README "Discord".
 discord:
-  # Discord server (guild) ID of the project server — not a secret. Empty: DiscordChannels
-  # report DiscordCredentialsMissing until it is set.
-  guildID: ""
+  # Discord server (guild) ID of the project server — not a secret.
+  guildID: "1573413870264131654"
