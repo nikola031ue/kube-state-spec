@@ -116,7 +116,7 @@ EOF
   write_release "$C" shophub shophub shop-operator 0.1.0 oci://docker.io/someone/shophub
   run bash "$SCRIPT" "$ROOT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"url"* ]]
+  [[ "$output" == *"listed in .github/upstream-charts.yaml"* ]]
 }
 
 @test "fails when tag is not strict SemVer" {
@@ -188,4 +188,64 @@ EOF
   run bash "$SCRIPT" "$ROOT"
   [ "$status" -ne 0 ]
   [[ "$output" == *"values.yaml"* ]]
+}
+
+# ---- upstream chart allowlist (spec 002 research R7) ----
+
+UPSTREAM_URL=oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
+
+@test "accepts an allowlisted upstream chart at its allowlisted version" {
+  write_release "$C" shop-operator shop-operator-system "" 0.29.2 "$UPSTREAM_URL"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -eq 0 ]
+}
+
+@test "fails when an allowlisted upstream chart uses another version" {
+  write_release "$C" shop-operator shop-operator-system "" 0.30.0 "$UPSTREAM_URL"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"allowlisted only at version 0.29.2"* ]]
+  [[ "$output" == *"update .github/upstream-charts.yaml in the same PR"* ]]
+}
+
+@test "fails when the allowlist is missing" {
+  rm "$ROOT/.github/upstream-charts.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *".github/upstream-charts.yaml: missing"* ]]
+}
+
+@test "fails when the allowlist is invalid YAML or not a list" {
+  printf 'charts: [broken\n' > "$ROOT/.github/upstream-charts.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"invalid YAML"* ]]
+  printf 'charts: {}\n' > "$ROOT/.github/upstream-charts.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be a list"* ]]
+}
+
+@test "fails when an allowlist version is not exact SemVer" {
+  printf 'charts:\n  - url: %s\n    version: "~0.29"\n' "$UPSTREAM_URL" > "$ROOT/.github/upstream-charts.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be an exact SemVer version"* ]]
+}
+
+@test "fails on non-oci or duplicate allowlist entries" {
+  printf 'charts:\n  - url: https://charts.example.com/x\n    version: 1.0.0\n' > "$ROOT/.github/upstream-charts.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must be an oci:// chart reference"* ]]
+  printf 'charts:\n  - url: %s\n    version: 0.29.2\n  - url: %s\n    version: 0.29.2\n' "$UPSTREAM_URL" "$UPSTREAM_URL" > "$ROOT/.github/upstream-charts.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"duplicate entry"* ]]
+}
+
+@test "accepts an empty allowlist" {
+  printf 'charts: []\n' > "$ROOT/.github/upstream-charts.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -eq 0 ]
 }

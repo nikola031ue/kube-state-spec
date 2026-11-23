@@ -5,6 +5,8 @@ context: docker-desktop          # bring-up.sh refuses any other current kube co
 distribution: docker-desktop     # Docker Desktop Kubernetes
 kubernetesVersion: "1.31"        # informational
 releaseOrder:                    # every release folder exactly once, dependencies first
+  - cnpg                         # CloudNativePG operator (PostgreSQL for standard shops)
+  - redis-operator               # OT redis-operator (Redis for light shops)
   - shop-operator
   - shophub
   - shophub-discord

@@ -7,7 +7,7 @@ spec:
   interval: 10m
   url: oci://ghcr.io/nikola031ue/charts/shop-operator
   ref:
-    tag: "0.1.0"
+    tag: "0.2.0"
   layerSelector:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
@@ -21,6 +21,9 @@ spec:
   interval: 10m
   releaseName: shop-operator
   targetNamespace: shop-operator-system
+  dependsOn:
+    - name: cnpg
+    - name: redis-operator
   install:
     createNamespace: true
     crds: CreateReplace

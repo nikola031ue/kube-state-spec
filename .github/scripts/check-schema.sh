@@ -16,6 +16,33 @@ err() { errors+=("$1"); }
 # eval-all + `[.] | .[i]`: exactly one value, no `---` separators, no per-doc repeats.
 q() { yq eval-all "[.] | .[$2] | $3" "$1"; }
 
+# ---- upstream chart allowlist (spec 002 research R7) ----
+# Charts not built in helm-charts that releases may use, as exact url + version pairs.
+ALLOWLIST=".github/upstream-charts.yaml"
+declare -A UPSTREAM=()
+if [[ ! -f "$ALLOWLIST" ]]; then
+  err "$ALLOWLIST: missing (list upstream charts as charts: [{url, version}], or 'charts: []')"
+elif ! yq eval '.' "$ALLOWLIST" >/dev/null 2>&1; then
+  err "$ALLOWLIST: invalid YAML"
+elif [[ "$(yq eval '.charts | tag' "$ALLOWLIST")" != "!!seq" ]]; then
+  err "$ALLOWLIST: 'charts' must be a list"
+else
+  n="$(yq eval '.charts | length' "$ALLOWLIST")"
+  for ((i = 0; i < n; i++)); do
+    u="$(yq eval ".charts[$i].url // \"\"" "$ALLOWLIST")"
+    v="$(yq eval ".charts[$i].version // \"\"" "$ALLOWLIST")"
+    if [[ "$u" != oci://* ]]; then
+      err "$ALLOWLIST: charts[$i].url must be an oci:// chart reference (got '$u')"
+    elif ! semver_valid "$v"; then
+      err "$ALLOWLIST: charts[$i].version must be an exact SemVer version (got '$v')"
+    elif [[ -n "${UPSTREAM[$u]+x}" ]]; then
+      err "$ALLOWLIST: duplicate entry for $u"
+    else
+      UPSTREAM[$u]="$v"
+    fi
+  done
+fi
+
 for cdir in clusters/*/; do
   [[ -d "$cdir" ]] || continue
   cdir="${cdir%/}"
@@ -90,15 +117,23 @@ for cdir in clusters/*/; do
         [[ "$(q "$h" 1 .spec.releaseName)" == "$name" ]] || err "$h: spec.releaseName must be '$name'"
 
         url="$(q "$h" 0 '.spec.url // ""')"
-        [[ "$url" == "$OCI_BASE"/* && "$url" != "$OCI_BASE/" ]] \
-          || err "$h: spec.url must start with $OCI_BASE/ (got '$url')"
-
         refkeys="$(q "$h" 0 '.spec.ref | keys | join(",")' 2>/dev/null || echo "")"
         tag="$(q "$h" 0 '.spec.ref.tag // ""')"
         if [[ "$refkeys" != tag ]]; then
           err "$h: spec.ref must contain only an exact tag (no semver range or digest)"
         elif ! semver_valid "$tag"; then
           err "$h: spec.ref.tag must be strict SemVer, got '$tag'"
+        fi
+
+        # Chart source: our registry, or an exact url+version on the upstream allowlist
+        # (spec 002 research R7, contracts/charts-and-kube-state.md).
+        if [[ "$url" == "$OCI_BASE"/* && "$url" != "$OCI_BASE/" ]]; then
+          :
+        elif [[ -n "${UPSTREAM[$url]+x}" ]]; then
+          [[ "$tag" == "${UPSTREAM[$url]}" ]] \
+            || err "$h: $url is allowlisted only at version ${UPSTREAM[$url]} (got '$tag'); update $ALLOWLIST in the same PR"
+        else
+          err "$h: spec.url must start with $OCI_BASE/ or be listed in $ALLOWLIST (got '$url')"
         fi
 
         [[ -n "$(q "$h" 1 '.spec.targetNamespace // ""')" ]] || err "$h: spec.targetNamespace is required"

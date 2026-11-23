@@ -14,6 +14,12 @@ kube-state
 └── clusters/
     └── local/
         ├── cluster.yaml          # cluster metadata (not a Kubernetes object)
+        ├── cnpg/                 # CloudNativePG operator (upstream chart)
+        │   ├── helm.yaml
+        │   └── values.yaml
+        ├── redis-operator/       # OT redis-operator (upstream chart)
+        │   ├── helm.yaml
+        │   └── values.yaml
         ├── shop-operator/
         │   ├── helm.yaml         # chart in OCI format + exact version, release, namespace
         │   └── values.yaml       # value overrides
@@ -27,15 +33,16 @@ kube-state
 
 The layout is immutable (Constitution Principle I) and enforced by the `layout` CI check:
 every release folder contains **exactly** `helm.yaml` and `values.yaml`. CI tooling lives only
-under `.github/`.
+under `.github/`, including the upstream chart allowlist `.github/upstream-charts.yaml`.
 
 ### Platform state only
 
 This repository holds **platform** state: operators, CRDs, the ShopHub application,
 observability and database operators, and RBAC. Resources that ShopHub users create — `Shop`,
-`Wallet`, `DiscordChannel` and database CRs — are **runtime state** created by the ShopHub backend
-through the Kubernetes API and are **never** stored here (Constitution Principle V). The single
-`shophub-discord` channel for platform/cluster alerts is maintainer-owned platform state.
+`Wallet`, `DiscordChannel` — and what the shop-operator derives from them (database CRs, shop
+workloads, Secrets) are **runtime state**: created through the Kubernetes API and **never** stored
+here (Constitution Principle V). The single `shophub-discord` channel for platform/cluster alerts
+is maintainer-owned platform state.
 
 ## File reference
 
@@ -55,7 +62,7 @@ Full schema: `shophub-specs/specs/001-iac-foundation/contracts/kube-state-files.
 
 | Document | Fields used by `bring-up.sh` | Rules |
 |----------|-------------------------------|-------|
-| `OCIRepository` (`source.toolkit.fluxcd.io/v1`) | `spec.url`, `spec.ref.tag` | URL under `oci://ghcr.io/nikola031ue/charts/`; tag is exact SemVer (no ranges, no `latest`) |
+| `OCIRepository` (`source.toolkit.fluxcd.io/v1`) | `spec.url`, `spec.ref.tag` | URL under `oci://ghcr.io/nikola031ue/charts/`, **or** an exact url + version listed in `.github/upstream-charts.yaml`; tag is exact SemVer (no ranges, no `latest`) |
 | `HelmRelease` (`helm.toolkit.fluxcd.io/v2`) | `spec.releaseName`, `spec.targetNamespace` | names equal the folder; `dependsOn` lists earlier releases; `valuesFrom` → ConfigMap `<folder>-values` |
 
 **`values.yaml`** — plain Helm overrides (`{}` allowed). **Never** literal secrets: reference
@@ -68,6 +75,36 @@ and images with a missing or `latest` tag.
 2. Create `clusters/local/<release>/helm.yaml` (copy an existing one, change names, URL, tag,
    namespace, `dependsOn`) and `clusters/local/<release>/values.yaml`.
 3. Add `<release>` to `releaseOrder` in `cluster.yaml` after its dependencies.
+
+### Upstream charts
+
+Charts we don't write (the database operators) are used as published by their projects and are
+allowed **only** at the exact versions in `.github/upstream-charts.yaml`:
+
+| Release | Chart | Version |
+|---------|-------|---------|
+| `cnpg` | `oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg` | 0.29.2 (operator 1.30.2) |
+| `redis-operator` | `oci://ghcr.io/ot-container-kit/charts/redis-operator` | 0.27.0 |
+
+To bump one, change the release's `helm.yaml` tag **and** its allowlist entry in the same PR; the
+`schema` check fails otherwise.
+
+### Discord
+
+The shop-operator creates Discord channels for `DiscordChannel` resources (including
+`shophub-discord`'s `platform-alerts`). It needs, once per cluster:
+
+1. the project server ID in `clusters/local/shop-operator/values.yaml` → `discord.guildID`
+   (not a secret), and
+2. the bot token in a Secret — the **one manual step** of the platform (spec 002 plan, Complexity
+   Tracking), because the token must never be committed:
+
+   ```bash
+   kubectl create secret generic shop-operator-discord -n shop-operator-system \n     --from-literal=token="$DISCORD_BOT_TOKEN"
+   ```
+
+Without them everything still installs; DiscordChannels report `DiscordCredentialsMissing` and
+the operator re-checks the token every minute. Bot setup: shop-operator README.
 
 ## Bring-up
 
@@ -102,17 +139,21 @@ Expected output on an empty cluster:
 
 ```text
 [cluster] local (context docker-desktop)
-[1/3] shop-operator    0.1.0   shop-operator-system   installed
-[1/3] shop-operator    crds: none
-[2/3] shophub          0.1.0   shophub                installed
-[2/3] shophub          crds: none
-[3/3] shophub-discord  0.1.0   shophub                installed
-[3/3] shophub-discord  crds: none
+[1/5] cnpg             0.29.2  cnpg-system            installed
+[1/5] cnpg             crds: backups.postgresql.cnpg.io,…,subscriptions.postgresql.cnpg.io Established
+[2/5] redis-operator   0.27.0  redis-operator         installed
+[2/5] redis-operator   crds: redis.redis.redis.opstreelabs.in,… Established
+[3/5] shop-operator    0.2.0   shop-operator-system   installed
+[3/5] shop-operator    crds: discordchannels.shophub.io,shops.shophub.io,wallets.shophub.io Established
+[4/5] shophub          0.1.0   shophub                installed
+[4/5] shophub          crds: none
+[5/5] shophub-discord  0.2.0   shophub                installed
+[5/5] shophub-discord  crds: none
 ...
-done: 3 installed, 0 upgraded, 0 unchanged
+done: 5 installed, 0 upgraded, 0 unchanged
 ```
 
-Running it again with no changes prints `done: 0 installed, 0 upgraded, 3 unchanged`. After
+Running it again with no changes prints `done: 0 installed, 0 upgraded, 5 unchanged`. After
 changing a tag or a value, only the affected release is upgraded.
 
 | Env var | Default | Meaning |
@@ -145,7 +186,7 @@ folders stay unchanged (see the plan's risk note about where Flux bootstraps its
 | Check | What |
 |-------|------|
 | `layout` | 5.3 tree; release folders contain exactly `helm.yaml` + `values.yaml` |
-| `schema` | `cluster.yaml` / `helm.yaml` / `values.yaml` rules; `releaseOrder` vs `dependsOn` |
+| `schema` | `cluster.yaml` / `helm.yaml` / `values.yaml` rules; `releaseOrder` vs `dependsOn`; chart source = our registry or the upstream allowlist |
 | `charts-exist` | every pinned chart version is pullable anonymously |
 | `render` | every release renders with its `values.yaml`; no missing/`latest` image tags |
 | `secrets-scan` | no literal secrets in `values.yaml` |

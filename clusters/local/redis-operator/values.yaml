@@ -1,0 +1,2 @@
+# Value overrides for the redis-operator release (upstream chart). No secrets — reference Secrets by name.
+{}
