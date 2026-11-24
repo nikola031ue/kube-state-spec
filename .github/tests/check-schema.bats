@@ -249,3 +249,32 @@ UPSTREAM_URL=oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
   run bash "$SCRIPT" "$ROOT"
   [ "$status" -eq 0 ]
 }
+
+# ---- cluster.yaml requiredSecrets (spec 004) ----
+
+@test "accepts a complete requiredSecrets entry" {
+  printf 'requiredSecrets:\n  - name: shophub-tls\n    namespace: traefik\n    release: shophub\n    help: create it\n' >> "$C/cluster.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -eq 0 ]
+}
+
+@test "fails when requiredSecrets is not a list" {
+  printf 'requiredSecrets: shophub-tls\n' >> "$C/cluster.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"requiredSecrets must be a list"* ]]
+}
+
+@test "fails when a requiredSecrets entry misses help" {
+  printf 'requiredSecrets:\n  - name: shophub-tls\n    namespace: traefik\n    release: shophub\n' >> "$C/cluster.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"requiredSecrets[0].help is required"* ]]
+}
+
+@test "fails when a requiredSecrets entry names an unknown release" {
+  printf 'requiredSecrets:\n  - name: shophub-tls\n    namespace: traefik\n    release: nginx\n    help: create it\n' >> "$C/cluster.yaml"
+  run bash "$SCRIPT" "$ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown release 'nginx'"* ]]
+}

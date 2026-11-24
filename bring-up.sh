@@ -18,6 +18,7 @@ Environment:
 
 Exit codes: 0 ok | 1 release failed | 2 missing tool | 3 invalid cluster.yaml/helm.yaml/values.yaml
             4 wrong kube context | 5 CRD not Established | 6 chart/registry not reachable
+            7 a hand-made Secret listed in cluster.yaml requiredSecrets is missing (help printed)
 EOF
 }
 
@@ -96,6 +97,24 @@ for rel_dir in "${RELEASES[@]}"; do
   [[ -n "$url" && -n "$version" && -n "$release" && -n "$ns" ]] \
     || fail 3 "$rel_dir: $H must define OCIRepository spec.url/spec.ref.tag and HelmRelease spec.releaseName/spec.targetNamespace"
   URLS+=("$url") VERSIONS+=("$version") NAMES+=("$release") NSS+=("$ns")
+done
+
+# ---- 3.1b hand-made Secrets from cluster.yaml requiredSecrets (exit 7), before any release ----
+# Only existence is checked (`-o name`); no Secret data is ever read or printed.
+nsec="$(yq eval '.requiredSecrets // [] | length' "$CFILE")"
+for ((s = 0; s < nsec; s++)); do
+  sname="$(yq eval ".requiredSecrets[$s].name // \"\"" "$CFILE")"
+  sns="$(yq eval ".requiredSecrets[$s].namespace // \"\"" "$CFILE")"
+  srel="$(yq eval ".requiredSecrets[$s].release // \"\"" "$CFILE")"
+  [[ -n "$sname" && -n "$sns" ]] || fail 3 "$CFILE: requiredSecrets[$s] needs name and namespace"
+  if ! out="$(kubectl get secret "$sname" -n "$sns" -o name "${KCTL[@]}" 2>&1)"; then
+    if grep -qi 'not found' <<<"$out"; then
+      yq eval ".requiredSecrets[$s].help // \"\"" "$CFILE" >&2
+      fail 7 "required Secret $sns/$sname is missing (needed by release '$srel'); create it as shown above, then re-run"
+    fi
+    printf '%s\n' "$out" >&2
+    fail 1 "could not check required Secret $sns/$sname"
+  fi
 done
 
 installed=0 upgraded=0 unchanged=0
