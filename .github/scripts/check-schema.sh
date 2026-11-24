@@ -92,6 +92,26 @@ for cdir in clusters/*/; do
     echo -1
   }
 
+  # ---- cluster.yaml requiredSecrets (spec 004): hand-made Secrets bring-up.sh checks ----
+  if [[ -f "$cfile" ]] && yq eval '.' "$cfile" >/dev/null 2>&1 \
+     && [[ "$(yq eval 'has("requiredSecrets")' "$cfile")" == true ]]; then
+    if [[ "$(yq eval '.requiredSecrets | tag' "$cfile")" != "!!seq" ]]; then
+      err "$cfile: requiredSecrets must be a list"
+    else
+      nsec="$(yq eval '.requiredSecrets | length' "$cfile")"
+      for ((s = 0; s < nsec; s++)); do
+        for k in name namespace release help; do
+          [[ -n "$(yq eval ".requiredSecrets[$s].$k // \"\"" "$cfile")" ]] \
+            || err "$cfile: requiredSecrets[$s].$k is required"
+        done
+        srel="$(yq eval ".requiredSecrets[$s].release // \"\"" "$cfile")"
+        if [[ -n "$srel" && "$(index_of "$srel")" -lt 0 ]]; then
+          err "$cfile: requiredSecrets[$s].release names unknown release '$srel'"
+        fi
+      done
+    fi
+  fi
+
   # ---- per release ----
   for name in "${folders[@]}"; do
     rdir="$cdir/$name"

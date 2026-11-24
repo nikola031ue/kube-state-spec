@@ -7,6 +7,18 @@ kubernetesVersion: "1.31"        # informational
 releaseOrder:                    # every release folder exactly once, dependencies first
   - cnpg                         # CloudNativePG operator (PostgreSQL for standard shops)
   - redis-operator               # OT redis-operator (Redis for light shops)
+  - traefik                      # entry point: HTTPS for ShopHub and every shop (spec 004)
   - shop-operator
   - shophub
   - shophub-discord
+requiredSecrets:                 # hand-made Secrets (never in git); bring-up.sh checks them
+  - name: shophub-tls            # before installing anything and stops with `help` if missing
+    namespace: traefik
+    release: traefik
+    help: |
+      Create the local TLS certificate once per cluster (README "Local HTTPS"):
+        mkcert -install
+        mkcert -cert-file shophub.pem -key-file shophub-key.pem shophub.localhost '*.shops.localhost'
+        kubectl create namespace traefik
+        kubectl create secret tls shophub-tls -n traefik --cert=shophub.pem --key=shophub-key.pem
+        rm shophub.pem shophub-key.pem

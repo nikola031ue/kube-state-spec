@@ -1,0 +1,43 @@
+# Traefik entry point (spec 004, contracts/platform-phase1.md). No secrets here: the default
+# certificate is Secret "shophub-tls" in namespace traefik, created by hand from mkcert
+# (README "Local HTTPS"); bring-up.sh stops before this release when it is missing.
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+  name: traefik
+ports:
+  web:
+    http:
+      redirections:
+        entryPoint:          # plain HTTP -> HTTPS, permanent
+          to: websecure
+          scheme: https
+          permanent: true
+service:
+  spec:
+    type: LoadBalancer       # Docker Desktop publishes it on localhost:80/443
+    externalTrafficPolicy: Local   # keep the real client address
+providers:
+  kubernetesCRD:
+    defaultTLSResourcesNamespace: traefik   # only this namespace may define the default TLSStore
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: shophub-tls
+# Headless Service resolving to the Traefik pod IPs. ShopHub trusts forwarded headers only
+# from these addresses (spec 004 research R7); DNS needs no Kubernetes permission.
+extraObjects:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: traefik-proxies
+      namespace: traefik
+    spec:
+      clusterIP: None
+      selector:
+        app.kubernetes.io/name: traefik
+        app.kubernetes.io/instance: traefik-traefik
+      ports:
+        - name: web
+          port: 8000
+          targetPort: web

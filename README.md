@@ -20,6 +20,9 @@ kube-state
         ├── redis-operator/       # OT redis-operator (upstream chart)
         │   ├── helm.yaml
         │   └── values.yaml
+        ├── traefik/              # entry point: HTTPS ingress controller (upstream chart)
+        │   ├── helm.yaml
+        │   └── values.yaml
         ├── shop-operator/
         │   ├── helm.yaml         # chart in OCI format + exact version, release, namespace
         │   └── values.yaml       # value overrides
@@ -57,6 +60,7 @@ Full schema: `shophub-specs/specs/001-iac-foundation/contracts/kube-state-files.
 | `distribution` | `docker-desktop` |
 | `kubernetesVersion` | informational |
 | `releaseOrder` | every release folder exactly once, dependencies first |
+| `requiredSecrets` | optional: hand-made Secrets (`name`, `namespace`, `release`, `help`) that must exist before bring-up installs anything; never their contents |
 
 **`helm.yaml`** — two Flux documents, so Flux can adopt them later unchanged:
 
@@ -78,16 +82,47 @@ and images with a missing or `latest` tag.
 
 ### Upstream charts
 
-Charts we don't write (the database operators) are used as published by their projects and are
+Charts we don't write (the database operators, the ingress controller) are used as published by their projects and are
 allowed **only** at the exact versions in `.github/upstream-charts.yaml`:
 
 | Release | Chart | Version |
 |---------|-------|---------|
 | `cnpg` | `oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg` | 0.29.2 (operator 1.30.2) |
 | `redis-operator` | `oci://ghcr.io/ot-container-kit/charts/redis-operator` | 0.27.0 |
+| `traefik` | `oci://ghcr.io/traefik/helm/traefik` | 42.3.1 (Traefik v3.7.17) |
 
 To bump one, change the release's `helm.yaml` tag **and** its allowlist entry in the same PR; the
 `schema` check fails otherwise.
+
+### Local HTTPS
+
+The `traefik` release is the cluster entry point (spec 004): HTTPS on `localhost:443` through
+the Docker Desktop LoadBalancer, plain HTTP redirected permanently to HTTPS, IngressClass
+`traefik` as the default. Hosts:
+
+- `https://shophub.localhost`: ShopHub;
+- `https://<shop>.shops.localhost`: each shop (Ingress created by the shop-operator).
+
+`*.localhost` names resolve to 127.0.0.1 in browsers without any hosts-file entry. Its default
+certificate is the Secret `shophub-tls` in namespace `traefik`. It is made **by hand once per
+cluster** with [mkcert](https://github.com/FiloSottile/mkcert), so the browser trusts it and the
+private key is never committed (like the Discord token). On Windows, install it with
+`winget install FiloSottile.mkcert`.
+
+```bash
+mkcert -install    # one time per machine: trusts the local CA in the browser / Windows store
+mkcert -cert-file shophub.pem -key-file shophub-key.pem shophub.localhost '*.shops.localhost'
+kubectl create namespace traefik
+kubectl create secret tls shophub-tls -n traefik --cert=shophub.pem --key=shophub-key.pem
+rm shophub.pem shophub-key.pem
+```
+
+`bring-up.sh` checks that this Secret exists before installing anything (it is listed in
+`cluster.yaml` `requiredSecrets`). If it is missing, the script prints these steps and stops
+with exit code 7. The mkcert CA key stays on your machine (`mkcert -CAROOT`).
+
+The release also creates a headless Service, `traefik-proxies`, that resolves to the Traefik pod
+IPs. ShopHub trusts forwarded client addresses only from those IPs.
 
 ### Discord
 
@@ -96,7 +131,7 @@ The shop-operator creates Discord channels for `DiscordChannel` resources (inclu
 
 1. the project server ID in `clusters/local/shop-operator/values.yaml` → `discord.guildID`
    (not a secret), and
-2. the bot token in a Secret — the **one manual step** of the platform (spec 002 plan, Complexity
+2. the bot token in a Secret — a **manual step** (spec 002 plan, Complexity
    Tracking), because the token must never be committed:
 
    ```bash
@@ -109,11 +144,13 @@ the operator re-checks the token every minute. Bot setup: shop-operator README.
 ## Bring-up
 
 Brings an **empty** local cluster to the state in this repository. Nothing else needs to be
-cloned.
+cloned. The only manual steps are the hand-made Secrets: the TLS certificate (required,
+[Local HTTPS](#local-https)) and the Discord token (optional, [Discord](#discord)).
 
 ### Prerequisites
 
 - Docker Desktop with Kubernetes enabled (kube context `docker-desktop`)
+- `mkcert`, and the `shophub-tls` Secret ([Local HTTPS](#local-https))
 - `helm` ≥ 3.8, `yq` v4 ([mikefarah/yq](https://github.com/mikefarah/yq)), `jq`, `kubectl`
 - Windows: run from **Git Bash**. Tools via
   `winget install Helm.Helm MikeFarah.yq jqlang.jq` (kubectl ships with Docker Desktop).
@@ -125,7 +162,8 @@ kubectl config use-context docker-desktop
 ./bring-up.sh            # cluster "local" by default
 ```
 
-For each release in `releaseOrder` the script:
+It first checks that every Secret in `requiredSecrets` exists (exit 7 with the creation steps
+if not). Then, for each release in `releaseOrder`, the script:
 
 1. installs or upgrades it with `helm upgrade --install --reset-values --wait` from the pinned OCI chart and
    its `values.yaml` — or prints `unchanged` and skips it if the deployed chart version, values
@@ -133,27 +171,30 @@ For each release in `releaseOrder` the script:
 2. waits for every CRD the release provides to be `Established` before the next release.
 
 It refuses to run against any kube context other than the one in `cluster.yaml`, and it never
-runs `kubectl apply/create/edit/delete` (Principle V).
+runs `kubectl apply/create/edit/delete` (Principle V). It only reads whether required Secrets
+exist; it never reads their data.
 
 Expected output on an empty cluster:
 
 ```text
 [cluster] local (context docker-desktop)
-[1/5] cnpg             0.29.2  cnpg-system            installed
-[1/5] cnpg             crds: backups.postgresql.cnpg.io,…,subscriptions.postgresql.cnpg.io Established
-[2/5] redis-operator   0.27.0  redis-operator         installed
-[2/5] redis-operator   crds: redis.redis.redis.opstreelabs.in,… Established
-[3/5] shop-operator    0.2.0   shop-operator-system   installed
-[3/5] shop-operator    crds: discordchannels.shophub.io,shops.shophub.io,wallets.shophub.io Established
-[4/5] shophub          0.1.0   shophub                installed
-[4/5] shophub          crds: none
-[5/5] shophub-discord  0.2.0   shophub                installed
-[5/5] shophub-discord  crds: none
+[1/6] cnpg             0.29.2  cnpg-system            installed
+[1/6] cnpg             crds: backups.postgresql.cnpg.io,…,subscriptions.postgresql.cnpg.io Established
+[2/6] redis-operator   0.27.0  redis-operator         installed
+[2/6] redis-operator   crds: redis.redis.redis.opstreelabs.in,… Established
+[3/6] traefik          42.3.1  traefik                installed
+[3/6] traefik          crds: accesscontrolpolicies.hub.traefik.io,…,uplinks.hub.traefik.io Established
+[4/6] shop-operator    0.3.1   shop-operator-system   installed
+[4/6] shop-operator    crds: discordchannels.shophub.io,shops.shophub.io,wallets.shophub.io Established
+[5/6] shophub          0.1.0   shophub                installed
+[5/6] shophub          crds: none
+[6/6] shophub-discord  0.2.0   shophub                installed
+[6/6] shophub-discord  crds: none
 ...
-done: 5 installed, 0 upgraded, 0 unchanged
+done: 6 installed, 0 upgraded, 0 unchanged
 ```
 
-Running it again with no changes prints `done: 0 installed, 0 upgraded, 5 unchanged`. After
+Running it again with no changes prints `done: 0 installed, 0 upgraded, 6 unchanged`. After
 changing a tag or a value, only the affected release is upgraded.
 
 | Env var | Default | Meaning |
@@ -170,6 +211,7 @@ changing a tag or a value, only the affected release is upgraded.
 | 4 | current kube context does not match `cluster.yaml` |
 | 5 | a CRD did not become `Established` in time |
 | 6 | chart version not found or registry unreachable |
+| 7 | a Secret listed in `cluster.yaml` `requiredSecrets` is missing (creation steps printed; nothing installed) |
 
 ### Reset to an empty cluster
 
@@ -191,7 +233,7 @@ folders stay unchanged (see the plan's risk note about where Flux bootstraps its
 | `render` | every release renders with its `values.yaml`; no missing/`latest` image tags |
 | `secrets-scan` | no literal secrets in `values.yaml` |
 | `unit` | `bring-up.sh` tests with stubbed `helm`/`kubectl` |
-| `e2e` | kind cluster: bring-up twice, second run all `unchanged`; wrong context refused |
+| `e2e` | kind cluster: missing TLS Secret stops with exit 7; bring-up twice, second run all `unchanged`; Traefik redirect, default certificate and `traefik-proxies` DNS; wrong context refused. kind has no LoadBalancer, so CI runs Traefik as NodePort and uses a throwaway self-signed Secret |
 
 ## Branch protection
 

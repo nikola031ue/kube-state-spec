@@ -2,6 +2,8 @@
 # Test stub for kubectl used by bring-up.bats. Logs every call to $STUB_LOG.
 #   KUBE_CONTEXT          output of `kubectl config current-context` (default docker-desktop)
 #   KUBECTL_WAIT_FAIL     CRD name whose `kubectl wait` times out
+#   KUBECTL_SECRET_MISSING  Secret name that `kubectl get secret` reports as NotFound
+#   KUBECTL_SECRET_ERROR    non-empty: `kubectl get secret` fails with an API error
 echo "kubectl $*" >> "${STUB_LOG:-/dev/null}"
 # Like the real kubectl: the context flag is --context; helm's --kube-context is an unknown flag.
 for a in "$@"; do
@@ -12,6 +14,15 @@ for a in "$@"; do
 done
 case "$*" in
   *"config current-context"*) echo "${KUBE_CONTEXT:-docker-desktop}" ;;
+  "get secret "*)
+    # KUBECTL_SECRET_MISSING=NAME -> NotFound; KUBECTL_SECRET_ERROR=1 -> API error
+    if [[ -n "${KUBECTL_SECRET_ERROR-}" ]]; then
+      echo "The connection to the server was refused" >&2; exit 1
+    fi
+    if [[ "$3" == "${KUBECTL_SECRET_MISSING-}" ]]; then
+      echo "Error from server (NotFound): secrets \"$3\" not found" >&2; exit 1
+    fi
+    echo "secret/$3" ;;
   *wait*)
     for a in "$@"; do
       if [[ "$a" == crd/* && "${a#crd/}" == "${KUBECTL_WAIT_FAIL-}" ]]; then

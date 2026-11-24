@@ -115,17 +115,51 @@ jobs:
         run: |
           kubectl config rename-context kind-ci docker-desktop
           kubectl config use-context docker-desktop
+      - name: kind has no LoadBalancer — run Traefik as NodePort in CI only
+        # helm --wait would wait forever for a LoadBalancer address. The working-copy edit is
+        # never committed; Docker Desktop keeps the LoadBalancer from values.yaml.
+        run: yq -i '.service.spec.type = "NodePort"' clusters/local/traefik/values.yaml
+      - name: Missing TLS Secret stops bring-up before any release (exit 7)
+        run: |
+          chmod +x bring-up.sh
+          set +e; ./bring-up.sh > /tmp/run0.txt 2>&1; rc=$?; set -e
+          cat /tmp/run0.txt
+          [ "$rc" -eq 7 ] || { echo "expected exit 7, got $rc"; exit 1; }
+          grep -q "mkcert" /tmp/run0.txt
+          [ "$(helm list -A -q | wc -l)" -eq 0 ] || { echo "a release was installed"; exit 1; }
+      - name: Create a throwaway TLS Secret (CI only; locally it comes from mkcert)
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=shophub.localhost" \
+            -addext "subjectAltName=DNS:shophub.localhost,DNS:*.shops.localhost" \
+            -keyout "$RUNNER_TEMP/tls.key" -out "$RUNNER_TEMP/tls.crt" 2>/dev/null
+          kubectl create namespace traefik
+          kubectl create secret tls shophub-tls -n traefik \
+            --cert="$RUNNER_TEMP/tls.crt" --key="$RUNNER_TEMP/tls.key"
+          rm "$RUNNER_TEMP/tls.key" "$RUNNER_TEMP/tls.crt"
       - name: First bring-up installs every release
         run: |
           set -euo pipefail
-          chmod +x bring-up.sh
           ./bring-up.sh | tee /tmp/run1.txt
-          grep -q "done: 5 installed, 0 upgraded, 0 unchanged" /tmp/run1.txt
+          grep -q "done: 6 installed, 0 upgraded, 0 unchanged" /tmp/run1.txt
+      - name: Traefik serves the default certificate and redirects HTTP
+        run: |
+          set -euo pipefail
+          kubectl -n traefik port-forward svc/traefik 18080:80 18443:443 >/dev/null 2>&1 &
+          sleep 3
+          code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: shophub.localhost' http://127.0.0.1:18080/)"
+          [ "$code" = 301 ] || [ "$code" = 308 ] || { echo "expected a permanent redirect, got $code"; exit 1; }
+          echo | openssl s_client -connect 127.0.0.1:18443 -servername shophub.localhost 2>/dev/null \
+            | openssl x509 -noout -subject | grep -q "shophub.localhost"
+          # headless traefik-proxies resolves to the Traefik pod IP (1st Address line is the DNS server)
+          n="$(kubectl run dnsprobe --image=busybox:1.36 --restart=Never --rm -i --quiet -- \
+            nslookup traefik-proxies.traefik.svc.cluster.local | grep -c '^Address')"
+          [ "$n" -ge 2 ] || { echo "traefik-proxies did not resolve to a pod IP"; exit 1; }
       - name: Second bring-up changes nothing (SC-003)
         run: |
           set -euo pipefail
           ./bring-up.sh | tee /tmp/run2.txt
-          grep -q "done: 0 installed, 0 upgraded, 5 unchanged" /tmp/run2.txt
+          grep -q "done: 0 installed, 0 upgraded, 6 unchanged" /tmp/run2.txt
           revs="$(helm history shophub -n shophub -o json | jq length)"
           [ "$revs" -eq 1 ] || { echo "shophub has $revs revisions, expected 1"; exit 1; }
       - name: Wrong context is refused (FR-021)

@@ -285,3 +285,48 @@ crd() { # crd NAME -> CRD manifest
   [ "$status" -eq 0 ]
   ! grep -E '^kubectl .*\b(apply|create|edit|delete|patch|replace)\b' "$STUB_LOG"
 }
+
+# ---- required hand-made Secrets (spec 004, exit 7) ----
+
+with_required_secret() {
+  cat >> clusters/local/cluster.yaml <<'YAML'
+requiredSecrets:
+  - name: shophub-tls
+    namespace: traefik
+    release: shophub
+    help: |
+      HELP-MARKER: create the TLS Secret with mkcert (README "Local HTTPS")
+YAML
+}
+
+@test "required Secret present -> checked with --context, releases installed" {
+  with_required_secret
+  run ./bring-up.sh
+  [ "$status" -eq 0 ]
+  grep -q '^kubectl get secret shophub-tls -n traefik -o name --context docker-desktop' "$STUB_LOG"
+  [[ "$output" == *"done: 3 installed"* ]]
+}
+
+@test "required Secret missing -> exit 7 with help, before any release" {
+  with_required_secret
+  KUBECTL_SECRET_MISSING=shophub-tls run ./bring-up.sh
+  [ "$status" -eq 7 ]
+  [[ "$output" == *"HELP-MARKER"* ]]
+  [[ "$output" == *"traefik/shophub-tls"* ]]
+  ! grep -q '^helm upgrade' "$STUB_LOG"
+}
+
+@test "required Secret check fails for another reason -> exit 1 with kubectl's error" {
+  with_required_secret
+  KUBECTL_SECRET_ERROR=1 run ./bring-up.sh
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"connection to the server was refused"* ]]
+  [[ "$output" != *"HELP-MARKER"* ]]
+  ! grep -q '^helm upgrade' "$STUB_LOG"
+}
+
+@test "no requiredSecrets -> no Secret lookup" {
+  run ./bring-up.sh
+  [ "$status" -eq 0 ]
+  ! grep -q '^kubectl get secret' "$STUB_LOG"
+}
