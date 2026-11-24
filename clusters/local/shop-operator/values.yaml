@@ -4,3 +4,8 @@
 discord:
   # Discord server (guild) ID of the project server — not a secret.
   guildID: "1573413870264131654"
+# The shop application run for every Shop (spec 003). Pinned SemVer only, never "latest";
+# bump this to roll every Shop to a new release.
+shopImage:
+  repository: ghcr.io/nikola031ue/shop
+  tag: "0.1.0"
