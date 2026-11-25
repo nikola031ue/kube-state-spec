@@ -20,14 +20,16 @@ metadata:
 spec:
   interval: 10m
   releaseName: shophub-discord
-  targetNamespace: shophub
+  # In the operator namespace since shop-operator 0.3.0, which reconciles DiscordChannels only
+  # there and in the shops namespace (spec 004 research R4).
+  targetNamespace: shop-operator-system
   install:
     createNamespace: true
   chartRef:
     kind: OCIRepository
     name: shophub-discord
   dependsOn:
-    - name: shophub
+    - name: shop-operator
   valuesFrom:
     - kind: ConfigMap
       name: shophub-discord-values
