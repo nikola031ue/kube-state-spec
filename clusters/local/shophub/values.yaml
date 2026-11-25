@@ -1,2 +1,12 @@
-# Value overrides for the shophub release. No secrets — reference Secrets by name.
-{}
+# Value overrides for the shophub release (spec 004). No secrets: the database URL comes from the
+# CNPG Secret shophub-db-app the chart's database creates.
+# The ShopHub image. Pinned SemVer only, never "latest".
+image:
+  tag: "0.1.0"
+# Panel address; the Traefik default certificate (README "Local HTTPS") covers it.
+host: shophub.localhost
+# Where the shop-operator runs Shops (its shopsNamespace) and their host suffix.
+shopsNamespace: shops
+shopDomain: shops.localhost
+# The Traefik pods (traefik release, headless Service traefik-proxies): the only trusted proxies.
+trustedProxyHost: traefik-proxies.traefik.svc.cluster.local
