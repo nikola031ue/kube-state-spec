@@ -197,7 +197,7 @@ Expected output on an empty cluster:
 [3/6] traefik          crds: accesscontrolpolicies.hub.traefik.io,…,uplinks.hub.traefik.io Established
 [4/6] shop-operator    0.4.0   shop-operator-system   installed
 [4/6] shop-operator    crds: discordchannels.shophub.io,shops.shophub.io,wallets.shophub.io Established
-[5/6] shophub          0.1.0   shophub                installed
+[5/6] shophub          0.2.0   shophub                installed
 [5/6] shophub          crds: none
 [6/6] shophub-discord  0.2.0   shop-operator-system   installed
 [6/6] shophub-discord  crds: none
