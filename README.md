@@ -45,7 +45,7 @@ observability and database operators, and RBAC. Resources that ShopHub users cre
 `Wallet`, `DiscordChannel` — and what the shop-operator derives from them (database CRs, shop
 workloads, Secrets) are **runtime state**: created through the Kubernetes API and **never** stored
 here (Constitution Principle V). The single `shophub-discord` channel for platform/cluster alerts
-is maintainer-owned platform state.
+is maintainer-owned platform state; it lives in `shop-operator-system`.
 
 ## File reference
 
@@ -127,7 +127,7 @@ IPs. ShopHub trusts forwarded client addresses only from those IPs.
 ### Discord
 
 The shop-operator creates Discord channels for `DiscordChannel` resources (including
-`shophub-discord`'s `platform-alerts`). It needs, once per cluster:
+`shophub-discord`'s `platform-alerts` in `shop-operator-system`). It needs, once per cluster:
 
 1. the project server ID in `clusters/local/shop-operator/values.yaml` → `discord.guildID`
    (not a secret), and
@@ -140,6 +140,17 @@ The shop-operator creates Discord channels for `DiscordChannel` resources (inclu
 
 Without them everything still installs; DiscordChannels report `DiscordCredentialsMissing` and
 the operator re-checks the token every minute. Bot setup: shop-operator README.
+
+**Moving from shop-operator chart 0.3.x (one time).** Chart 0.4.0 watches only `shops` and its
+own namespace, so `shophub-discord` moves from `shophub` to `shop-operator-system`. A Helm
+release can't change namespace, and `bring-up.sh` never deletes, so before running bring-up
+with chart 0.4.0, while operator 0.2.1 still runs (its finalizer removes the old Discord channel):
+
+```bash
+kubectl delete discordchannel platform-alerts -n shophub --wait --timeout=2m
+helm uninstall shophub-discord -n shophub
+./bring-up.sh
+```
 
 ## Bring-up
 
@@ -184,11 +195,11 @@ Expected output on an empty cluster:
 [2/6] redis-operator   crds: redis.redis.redis.opstreelabs.in,… Established
 [3/6] traefik          42.3.1  traefik                installed
 [3/6] traefik          crds: accesscontrolpolicies.hub.traefik.io,…,uplinks.hub.traefik.io Established
-[4/6] shop-operator    0.3.1   shop-operator-system   installed
+[4/6] shop-operator    0.4.0   shop-operator-system   installed
 [4/6] shop-operator    crds: discordchannels.shophub.io,shops.shophub.io,wallets.shophub.io Established
 [5/6] shophub          0.1.0   shophub                installed
 [5/6] shophub          crds: none
-[6/6] shophub-discord  0.2.0   shophub                installed
+[6/6] shophub-discord  0.2.0   shop-operator-system   installed
 [6/6] shophub-discord  crds: none
 ...
 done: 6 installed, 0 upgraded, 0 unchanged
