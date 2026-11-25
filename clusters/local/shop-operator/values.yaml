@@ -8,4 +8,4 @@ discord:
 # bump this to roll every Shop to a new release.
 shopImage:
   repository: ghcr.io/nikola031ue/shop
-  tag: "0.1.1"
+  tag: "0.2.0"
