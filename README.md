@@ -73,6 +73,12 @@ Full schema: `shophub-specs/specs/001-iac-foundation/contracts/kube-state-files.
 Kubernetes Secrets by name (`existingSecret`, `…SecretName`). CI rejects secret-looking values
 and images with a missing or `latest` tag.
 
+**Image versions.** Where a release's `values.yaml` sets `image.tag` (for example
+`clusters/local/shophub/values.yaml`), that tag is what runs: our charts (`shophub`, `shop-operator`) use
+`image.tag | default .Chart.AppVersion`, so the chart's `appVersion` only applies when no tag is
+set. Rolling out a new app version means changing `image.tag` here; bumping the chart's
+`appVersion` alone changes nothing.
+
 ### Adding a release
 
 1. Publish the chart from `helm-charts`.
@@ -121,6 +127,10 @@ rm shophub.pem shophub-key.pem
 `cluster.yaml` `requiredSecrets`). If it is missing, the script prints these steps and stops
 with exit code 7. The mkcert CA key stays on your machine (`mkcert -CAROOT`).
 
+Browsers trust the certificate after `mkcert -install`. **`curl` in Git Bash on Windows** uses the
+Windows TLS stack, which can't check revocation for a mkcert certificate and fails with
+`CRYPT_E_NO_REVOCATION_CHECK`; add `--ssl-no-revoke` (the certificate is still verified).
+
 The release also creates a headless Service, `traefik-proxies`, that resolves to the Traefik pod
 IPs. ShopHub trusts forwarded client addresses only from those IPs.
 
@@ -135,8 +145,13 @@ The shop-operator creates Discord channels for `DiscordChannel` resources (inclu
    Tracking), because the token must never be committed:
 
    ```bash
-   kubectl create secret generic shop-operator-discord -n shop-operator-system \n     --from-literal=token="$DISCORD_BOT_TOKEN"
+   kubectl create namespace shop-operator-system   # on an empty cluster; bring-up reuses it
+   kubectl create secret generic shop-operator-discord -n shop-operator-system \
+     --from-literal=token="$DISCORD_BOT_TOKEN"
    ```
+
+   `bring-up.sh` installs with `helm --create-namespace`, which leaves an existing namespace as
+   it is, so creating it first is safe (the same as `traefik` for the TLS Secret).
 
 Without them everything still installs; DiscordChannels report `DiscordCredentialsMissing` and
 the operator re-checks the token every minute. Bot setup: shop-operator README.
@@ -197,7 +212,7 @@ Expected output on an empty cluster:
 [3/6] traefik          crds: accesscontrolpolicies.hub.traefik.io,…,uplinks.hub.traefik.io Established
 [4/6] shop-operator    0.4.0   shop-operator-system   installed
 [4/6] shop-operator    crds: discordchannels.shophub.io,shops.shophub.io,wallets.shophub.io Established
-[5/6] shophub          0.2.0   shophub                installed
+[5/6] shophub          0.2.1   shophub                installed
 [5/6] shophub          crds: none
 [6/6] shophub-discord  0.2.0   shop-operator-system   installed
 [6/6] shophub-discord  crds: none
