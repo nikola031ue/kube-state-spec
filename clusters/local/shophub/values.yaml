@@ -2,7 +2,7 @@
 # CNPG Secret shophub-db-app the chart's database creates.
 # The ShopHub image. Pinned SemVer only, never "latest".
 image:
-  tag: "0.1.0"
+  tag: "0.2.0"
 # Panel address; the Traefik default certificate (README "Local HTTPS") covers it.
 host: shophub.localhost
 # Where the shop-operator runs Shops (its shopsNamespace) and their host suffix.
