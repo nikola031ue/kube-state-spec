@@ -4,8 +4,14 @@
 discord:
   # Discord server (guild) ID of the project server — not a secret.
   guildID: "1573413870264131654"
-# The shop application run for every Shop (spec 003). Pinned SemVer only, never "latest";
+# The shop application run for every Shop (spec 003, 005). Pinned SemVer only, never "latest";
 # bump this to roll every Shop to a new release.
 shopImage:
   repository: ghcr.io/nikola031ue/shop
-  tag: "0.2.0"
+  tag: "0.3.0"
+# Crypto payments (spec 005). Public settings only. The provider endpoint URL carries an API key
+# and lives in Secret shop-operator-rpc (key "url") in shop-operator-system, created once by hand;
+# see README "Payments". The chart's defaults cover chain id, confirmations and polling.
+payments:
+  # mUSDT on Sepolia (spec 005 T004, verified on Sourcify).
+  tokenAddress: "0xdF8d5dEb736EBC79f7e99C4c90975d4b8f8d80E2"

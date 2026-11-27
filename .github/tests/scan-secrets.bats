@@ -74,3 +74,33 @@ setup() {
   [[ "$output" == *"bad.yaml"* ]]
   [[ "$output" != *"ok.yaml"* ]]
 }
+
+@test "allows a public Ethereum address under an ...Address key (spec 005 tokenAddress)" {
+  printf 'payments:
+  tokenAddress: "0xdF8d5dEb736EBC79f7e99C4c90975d4b8f8d80E2"
+' > "$F"
+  run bash "$SCRIPT" "$F"
+  [ "$status" -eq 0 ]
+}
+
+@test "flags a private key (64 hex) under an ...Address key" {
+  printf 'tokenAddress: "0x%s"
+' "$(printf 'ab%.0s' $(seq 32))" > "$F"
+  run bash "$SCRIPT" "$F"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"tokenAddress"* ]]
+}
+
+@test "flags anything else under an ...Address key whose name is secret-like" {
+  printf 'tokenAddress: "hunter2"
+' > "$F"
+  run bash "$SCRIPT" "$F"
+  [ "$status" -ne 0 ]
+}
+
+@test "flags an address-shaped value under a key that does not end in Address" {
+  printf 'token: "0xdF8d5dEb736EBC79f7e99C4c90975d4b8f8d80E2"
+' > "$F"
+  run bash "$SCRIPT" "$F"
+  [ "$status" -ne 0 ]
+}

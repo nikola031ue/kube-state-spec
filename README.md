@@ -167,6 +167,28 @@ helm uninstall shophub-discord -n shophub
 ./bring-up.sh
 ```
 
+### Payments
+
+The shop-operator watches Sepolia for mUSDT payments to every Wallet (spec 005). The token
+address is public and sits in `clusters/local/shop-operator/values.yaml` → `payments.tokenAddress`.
+The provider endpoint URL carries an API key, so it goes in a Secret — a **manual step**, once
+per cluster:
+
+```bash
+kubectl create namespace shop-operator-system   # on an empty cluster; bring-up reuses it
+read -rs RPC_URL   # paste the endpoint, nothing is echoed
+kubectl create secret generic shop-operator-rpc -n shop-operator-system --from-literal=url="$RPC_URL"
+unset RPC_URL
+```
+
+Without it everything still installs; Wallets report `PaymentsWatching=False` with reason
+`RPCCredentialsMissing` and shops refuse checkout.
+
+**Version pairing.** shop-operator chart 0.5.0 adds an admission policy that refuses deleting a
+Shop unless ShopHub marked it (`shophub.io/delete-requested`), which ShopHub does from 0.3.0 on.
+Roll out ShopHub 0.3.0 before moving the operator chart to 0.5.0; the `pairing` CI check refuses
+the other order. A Shop is then deleted through the ShopHub panel or API, not `kubectl delete`.
+
 ## Bring-up
 
 Brings an **empty** local cluster to the state in this repository. Nothing else needs to be
@@ -257,6 +279,7 @@ folders stay unchanged (see the plan's risk note about where Flux bootstraps its
 | `schema` | `cluster.yaml` / `helm.yaml` / `values.yaml` rules; `releaseOrder` vs `dependsOn`; chart source = our registry or the upstream allowlist |
 | `charts-exist` | every pinned chart version is pullable anonymously |
 | `render` | every release renders with its `values.yaml`; no missing/`latest` image tags |
+| `pairing` | shop-operator chart ≥ 0.5.0 (Shop delete guard) only with ShopHub `image.tag` ≥ 0.3.0 |
 | `secrets-scan` | no literal secrets in `values.yaml` |
 | `unit` | `bring-up.sh` tests with stubbed `helm`/`kubectl` |
 | `e2e` | kind cluster: missing TLS Secret stops with exit 7; bring-up twice, second run all `unchanged`; Traefik redirect, default certificate and `traefik-proxies` DNS; wrong context refused. kind has no LoadBalancer, so CI runs Traefik as NodePort and uses a throwaway self-signed Secret |
