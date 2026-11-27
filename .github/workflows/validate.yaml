@@ -31,6 +31,17 @@ jobs:
       - name: Test schema checker
         run: bats .github/tests/check-schema.bats
 
+  pairing:
+    name: pairing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tools
+      - name: shop-operator chart >= 0.5.0 only with ShopHub >= 0.3.0 (spec 005 T024)
+        run: bash .github/scripts/check-pairing.sh
+      - name: Test pairing checker
+        run: bats .github/tests/check-pairing.bats
+
   secrets-scan:
     name: secrets-scan
     runs-on: ubuntu-latest
